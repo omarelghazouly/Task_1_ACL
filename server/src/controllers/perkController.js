@@ -70,9 +70,48 @@ export async function createPerk(req, res, next) {
 // TODO
 // Update an existing perk by ID and validate only the fields that are being updated 
 export async function updatePerk(req, res, next) {
-  
-}
+  try {
+    // ❌ Do not allow title to be changed
+    if (Object.prototype.hasOwnProperty.call(req.body, 'title')) {
+      return res.status(400).json({ message: 'Title cannot be updated' });
+    }
 
+    // Allowed, all optional for PATCH
+    const perkUpdateSchema = Joi.object({
+      description: Joi.string().allow(''),
+      category: Joi.string().valid('food', 'tech', 'travel', 'fitness', 'other'),
+      discountPercent: Joi.number().min(0).max(100),
+      merchant: Joi.string().allow('')
+    }).min(1); // require at least one updatable field
+
+    const { value, error } = perkUpdateSchema.validate(req.body, {
+      stripUnknown: true,
+      abortEarly: false
+    });
+    if (error) {
+      return res
+        .status(400)
+        .json({ message: error.details.map(d => d.message).join(', ') });
+    }
+
+    const updated = await Perk.findByIdAndUpdate(
+      req.params.id,
+      { $set: value },
+      { new: true, runValidators: true }
+    );
+
+    if (!updated) return res.status(404).json({ message: 'Perk not found' });
+    res.json({ perk: updated });
+  } catch (err) {
+    if (err.code === 11000) {
+      // unique index on { title, merchant } can still conflict if merchant changes
+      return res
+        .status(409)
+        .json({ message: 'Duplicate perk for this merchant (title must be unique per merchant)' });
+    }
+    next(err);
+  }
+}
 
 // Delete a perk by ID
 export async function deletePerk(req, res, next) {
